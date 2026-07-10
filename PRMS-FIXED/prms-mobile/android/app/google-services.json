@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "426530479142",
+    "project_id": "prms-a5d90",
+    "storage_bucket": "prms-a5d90.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:426530479142:android:db81d0f629d5b6cf7e9ae7",
+        "android_client_info": {
+          "package_name": "com.prmsmobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD68tVvc7ckIet39rA-RbuPBxXzlY_y6C0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

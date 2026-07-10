@@ -1,0 +1,38 @@
+{
+  "_comment": "PRMS Mobile — Firebase Configuration Template",
+  "_instructions": [
+    "1. Go to Firebase Console: https://console.firebase.google.com",
+    "2. Create or open your PRMS project",
+    "3. Add an Android app with package name: com.prmsmobile",
+    "4. Download google-services.json and replace this file (remove .template extension)",
+    "5. Place the real google-services.json in android/app/google-services.json",
+    "6. Do NOT commit the real google-services.json to version control"
+  ],
+  "project_info": {
+    "project_number": "YOUR_PROJECT_NUMBER",
+    "project_id": "YOUR_PROJECT_ID",
+    "storage_bucket": "YOUR_PROJECT_ID.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "YOUR_ANDROID_APP_ID",
+        "android_client_info": {
+          "package_name": "com.prmsmobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "YOUR_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

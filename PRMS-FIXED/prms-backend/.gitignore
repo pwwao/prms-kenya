@@ -1,0 +1,9 @@
+node_modules/
+dist/
+logs/
+keys/           # NEVER commit JWT private keys or encryption keys
+.env            # NEVER commit secrets
+*.env.local
+coverage/
+.DS_Store
+*.js.map

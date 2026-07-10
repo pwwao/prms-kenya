@@ -1,0 +1,1761 @@
+openapi: 3.1.0
+
+info:
+  title: PRMS — Patient Referral Management System API
+  version: 1.0.0
+  description: |
+    Production API for the Kenya Patient Referral Management System (PRMS).
+    
+    **Base URL:** `https://api.prms.health.go.ke/api/v1`
+    
+    **Authentication:** Bearer JWT (RS256). Obtain tokens via `/auth/login`.
+    
+    **Compliance:** Kenya Data Protection Act (KDPA) 2019.
+  contact:
+    name: PRMS Engineering Team
+    email: engineering@prms.health.go.ke
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.prms.health.go.ke/api/v1
+    description: Production
+  - url: https://staging-api.prms.health.go.ke/api/v1
+    description: Staging
+  - url: http://localhost:3000/api/v1
+    description: Local Development
+
+tags:
+  - name: Authentication
+    description: Login, 2FA, token refresh, password management
+  - name: Hospitals
+    description: Hospital registration and lifecycle management
+  - name: Users
+    description: Facility staff account management
+  - name: Patients
+    description: Patient registration and record retrieval
+  - name: Referrals
+    description: Referral creation, workflow, and status transitions
+  - name: Messages
+    description: Per-referral secure chat history
+  - name: Notifications
+    description: In-app notification management
+  - name: Reports
+    description: Analytics and reporting (anonymized)
+  - name: Audit Logs
+    description: Immutable system audit trail (System Admin only)
+  - name: Sync
+    description: Mobile offline sync endpoint
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECURITY SCHEMES
+# ─────────────────────────────────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 signed JWT. Expires in 15 minutes.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REUSABLE SCHEMAS
+# ─────────────────────────────────────────────────────────────────────────────
+
+  schemas:
+
+    # ── Meta ─────────────────────────────────────────────────────────────────
+    Meta:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        requestId:
+          type: string
+          format: uuid
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+        hasNext:
+          type: boolean
+        hasPrev:
+          type: boolean
+
+    MetaWithPagination:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          properties:
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+
+    ErrorDetail:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                $ref: '#/components/schemas/ErrorDetail'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ── Auth ─────────────────────────────────────────────────────────────────
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        fullName:
+          type: string
+        role:
+          type: string
+          enum: [System Admin, Hospital Admin, Clinician, Receptionist]
+        hospitalId:
+          type: integer
+          nullable: true
+        hospitalName:
+          type: string
+          nullable: true
+        isFirstLogin:
+          type: boolean
+
+    AuthTokens:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds
+          example: 900
+        user:
+          $ref: '#/components/schemas/UserSummary'
+
+    # ── Hospital ──────────────────────────────────────────────────────────────
+    HospitalStatus:
+      type: string
+      enum: [Pending, Approved, Suspended, Rejected]
+
+    FacilityLevel:
+      type: string
+      enum: [Level 2, Level 3, Level 4, Level 5, Level 6]
+
+    Hospital:
+      type: object
+      properties:
+        id:
+          type: integer
+        mohCode:
+          type: string
+          example: KNH-2024-001
+        name:
+          type: string
+          example: Kenyatta National Hospital
+        facilityLevel:
+          $ref: '#/components/schemas/FacilityLevel'
+        county:
+          type: string
+        subCounty:
+          type: string
+        status:
+          $ref: '#/components/schemas/HospitalStatus'
+        totalStaff:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── User ─────────────────────────────────────────────────────────────────
+    UserRole:
+      type: string
+      enum: [System Admin, Hospital Admin, Clinician, Receptionist]
+
+    UserStatus:
+      type: string
+      enum: [Active, Inactive, Suspended]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        hospitalId:
+          type: integer
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        isTwoFactorEnabled:
+          type: boolean
+        isFirstLogin:
+          type: boolean
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Patient ───────────────────────────────────────────────────────────────
+    PatientMasked:
+      type: object
+      description: Patient record with PII masked (Receptionist view)
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+          example: Jane W. M.
+        nationalId:
+          type: string
+          example: XXXX6789
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        age:
+          type: integer
+        county:
+          type: string
+        phoneNumber:
+          type: string
+          example: 071XXXX678
+
+    PatientFull:
+      type: object
+      description: Full patient record (Clinician view)
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+          example: Jane Wambui Mwangi
+        nationalId:
+          type: string
+          example: "23456789"
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        dateOfBirth:
+          type: string
+          format: date
+        age:
+          type: integer
+        county:
+          type: string
+        phoneNumber:
+          type: string
+          example: "+254712345678"
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Referral ──────────────────────────────────────────────────────────────
+    ReferralStatus:
+      type: string
+      enum: [Draft, Dispatched, Received, Accepted, Rejected, Completed]
+
+    UrgencyLevel:
+      type: string
+      enum: [Routine, Urgent, Emergent]
+
+    ReferralTimelineEntry:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/ReferralStatus'
+        previousStatus:
+          $ref: '#/components/schemas/ReferralStatus'
+          nullable: true
+        actionBy:
+          type: object
+          properties:
+            id:
+              type: integer
+            fullName:
+              type: string
+        notes:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+
+    ReferralSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        referralCode:
+          type: string
+          example: REF-2026-00981
+        status:
+          $ref: '#/components/schemas/ReferralStatus'
+        urgencyLevel:
+          $ref: '#/components/schemas/UrgencyLevel'
+        direction:
+          type: string
+          enum: [incoming, outgoing]
+        patient:
+          $ref: '#/components/schemas/PatientMasked'
+        sourceHospital:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            facilityLevel:
+              $ref: '#/components/schemas/FacilityLevel'
+        destinationHospital:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            facilityLevel:
+              $ref: '#/components/schemas/FacilityLevel'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ReferralDetail:
+      allOf:
+        - $ref: '#/components/schemas/ReferralSummary'
+        - type: object
+          properties:
+            reasonForReferral:
+              type: string
+            clinicalSummary:
+              type: string
+              description: Decrypted for Clinicians only. Restricted string for Receptionists.
+            rejectionReason:
+              type: string
+              nullable: true
+            createdByUser:
+              type: object
+              properties:
+                id:
+                  type: integer
+                fullName:
+                  type: string
+                role:
+                  $ref: '#/components/schemas/UserRole'
+            timeline:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReferralTimelineEntry'
+
+    # ── Message ───────────────────────────────────────────────────────────────
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+        referralId:
+          type: integer
+        sender:
+          type: object
+          properties:
+            id:
+              type: integer
+            fullName:
+              type: string
+            hospitalName:
+              type: string
+        content:
+          type: string
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Notification ──────────────────────────────────────────────────────────
+    NotificationType:
+      type: string
+      enum:
+        - REFERRAL_DISPATCHED
+        - REFERRAL_RECEIVED
+        - REFERRAL_ACCEPTED
+        - REFERRAL_REJECTED
+        - REFERRAL_COMPLETED
+        - MESSAGE_RECEIVED
+        - HOSPITAL_APPROVED
+        - HOSPITAL_SUSPENDED
+        - ACCOUNT_SUSPENDED
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          $ref: '#/components/schemas/NotificationType'
+        title:
+          type: string
+        body:
+          type: string
+        isRead:
+          type: boolean
+        data:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Audit Log ─────────────────────────────────────────────────────────────
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        user:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: integer
+            username:
+              type: string
+            role:
+              $ref: '#/components/schemas/UserRole'
+        actionType:
+          type: string
+          example: VIEW_PATIENT_PII
+        ipAddress:
+          type: string
+        userAgent:
+          type: string
+        resourceAffected:
+          type: string
+        payloadSnapshot:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REUSABLE RESPONSES
+# ─────────────────────────────────────────────────────────────────────────────
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: AUTH_TOKEN_EXPIRED
+              message: Access token has expired
+            meta:
+              timestamp: "2026-06-10T10:00:00.000Z"
+              requestId: uuid
+
+    Forbidden:
+      description: Insufficient role permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    ValidationError:
+      description: Request body validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimitExceeded:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ═══════════════════════════════════════════════════════
+  # AUTHENTICATION
+  # ═══════════════════════════════════════════════════════
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login with username or email
+      description: Authenticates user. Returns pre-auth token if 2FA is enabled, or full tokens if disabled.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier:
+                  type: string
+                  description: Username or email address
+                  example: dr.waweru
+                password:
+                  type: string
+                  format: password
+                  example: SecurePassword123!
+      responses:
+        '200':
+          description: Login successful or 2FA required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    oneOf:
+                      - $ref: '#/components/schemas/AuthTokens'
+                      - type: object
+                        properties:
+                          status:
+                            type: string
+                            example: 2FA_REQUIRED
+                          preAuthToken:
+                            type: string
+                          deliveryMethod:
+                            type: string
+                            enum: [TOTP, SMS]
+                  message:
+                    type: string
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /auth/verify-2fa:
+    post:
+      tags: [Authentication]
+      summary: Complete 2FA verification
+      operationId: verify2FA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preAuthToken, otpCode]
+              properties:
+                preAuthToken:
+                  type: string
+                otpCode:
+                  type: string
+                  pattern: '^\d{6}$'
+                  example: "584920"
+      responses:
+        '200':
+          description: Verification successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/AuthTokens'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      expiresIn:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Revoke tokens and end session
+      operationId: logout
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Logged out successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request password reset email
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Always returns 200 to prevent email enumeration
+
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Complete password reset
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resetToken, newPassword, confirmPassword]
+              properties:
+                resetToken:
+                  type: string
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 12
+                confirmPassword:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Password reset successfully
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user profile
+      operationId: getMe
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/change-password:
+    patch:
+      tags: [Authentication]
+      summary: Change own password
+      operationId: changePassword
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword, confirmPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 12
+                confirmPassword:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Password changed
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/register-device:
+    post:
+      tags: [Authentication]
+      summary: Register mobile device for push notifications
+      operationId: registerDevice
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fcmToken, deviceId, platform]
+              properties:
+                fcmToken:
+                  type: string
+                deviceId:
+                  type: string
+                  format: uuid
+                platform:
+                  type: string
+                  enum: [android, ios]
+      responses:
+        '200':
+          description: Device registered
+
+  # ═══════════════════════════════════════════════════════
+  # HOSPITALS
+  # ═══════════════════════════════════════════════════════
+
+  /hospitals:
+    post:
+      tags: [Hospitals]
+      summary: Register a new hospital
+      operationId: registerHospital
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mohCode, name, facilityLevel, county, subCounty, adminFullName, adminEmail, adminPhone, adminUsername]
+              properties:
+                mohCode:
+                  type: string
+                  example: KNH-2024-001
+                name:
+                  type: string
+                facilityLevel:
+                  $ref: '#/components/schemas/FacilityLevel'
+                county:
+                  type: string
+                subCounty:
+                  type: string
+                adminFullName:
+                  type: string
+                adminEmail:
+                  type: string
+                  format: email
+                adminPhone:
+                  type: string
+                adminUsername:
+                  type: string
+      responses:
+        '201':
+          description: Registration submitted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Duplicate MoH code or email
+
+    get:
+      tags: [Hospitals]
+      summary: List all hospitals
+      operationId: listHospitals
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/HospitalStatus'
+        - name: county
+          in: query
+          schema:
+            type: string
+        - name: facilityLevel
+          in: query
+          schema:
+            $ref: '#/components/schemas/FacilityLevel'
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Hospital list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Hospital'
+                  meta:
+                    $ref: '#/components/schemas/MetaWithPagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /hospitals/{hospitalId}:
+    get:
+      tags: [Hospitals]
+      summary: Get hospital details
+      operationId: getHospital
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: hospitalId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Hospital details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Hospital'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /hospitals/{hospitalId}/status:
+    patch:
+      tags: [Hospitals]
+      summary: Update hospital status (System Admin only)
+      operationId: updateHospitalStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: hospitalId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/HospitalStatus'
+                reason:
+                  type: string
+                  description: Required when status is Suspended or Rejected
+      responses:
+        '200':
+          description: Status updated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Invalid state transition
+
+  # ═══════════════════════════════════════════════════════
+  # USERS
+  # ═══════════════════════════════════════════════════════
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List facility staff (Hospital Admin)
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/UserStatus'
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [Clinician, Receptionist]
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  meta:
+                    $ref: '#/components/schemas/MetaWithPagination'
+
+    post:
+      tags: [Users]
+      summary: Create a staff account (Hospital Admin)
+      operationId: createUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, username, email, phoneNumber, role]
+              properties:
+                fullName:
+                  type: string
+                username:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                phoneNumber:
+                  type: string
+                role:
+                  type: string
+                  enum: [Clinician, Receptionist]
+      responses:
+        '201':
+          description: User created
+        '409':
+          description: Username or email already taken
+
+  /users/{userId}:
+    get:
+      tags: [Users]
+      summary: Get user details
+      operationId: getUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Users]
+      summary: Update user profile
+      operationId: updateUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                phoneNumber:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: User updated
+
+  /users/{userId}/status:
+    patch:
+      tags: [Users]
+      summary: Activate or suspend a user
+      operationId: updateUserStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [Active, Suspended]
+                reason:
+                  type: string
+                  description: Required when suspending
+      responses:
+        '200':
+          description: Status updated
+
+  # ═══════════════════════════════════════════════════════
+  # PATIENTS
+  # ═══════════════════════════════════════════════════════
+
+  /patients:
+    post:
+      tags: [Patients]
+      summary: Register a new patient
+      operationId: createPatient
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idType, nationalId, fullName, gender, dateOfBirth, county]
+              properties:
+                idType:
+                  type: string
+                  enum: [National ID, Alien ID, Birth Certificate]
+                nationalId:
+                  type: string
+                fullName:
+                  type: string
+                gender:
+                  type: string
+                  enum: [Male, Female, Other]
+                dateOfBirth:
+                  type: string
+                  format: date
+                county:
+                  type: string
+                phoneNumber:
+                  type: string
+      responses:
+        '201':
+          description: Patient registered
+        '409':
+          description: Patient with this ID already registered
+
+    get:
+      tags: [Patients]
+      summary: Search patients
+      operationId: searchPatients
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: National ID or partial name
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Patient list (role-masked)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/PatientFull'
+                        - $ref: '#/components/schemas/PatientMasked'
+                  meta:
+                    $ref: '#/components/schemas/MetaWithPagination'
+
+  /patients/{patientId}:
+    get:
+      tags: [Patients]
+      summary: Get patient record
+      operationId: getPatient
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Patient record (role-masked)
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ═══════════════════════════════════════════════════════
+  # REFERRALS
+  # ═══════════════════════════════════════════════════════
+
+  /referrals:
+    post:
+      tags: [Referrals]
+      summary: Create a referral (Draft)
+      operationId: createReferral
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patientId, destinationHospitalId, urgencyLevel, reasonForReferral, clinicalSummary]
+              properties:
+                patientId:
+                  type: integer
+                destinationHospitalId:
+                  type: integer
+                urgencyLevel:
+                  $ref: '#/components/schemas/UrgencyLevel'
+                reasonForReferral:
+                  type: string
+                  minLength: 20
+                clinicalSummary:
+                  type: string
+                  minLength: 50
+      responses:
+        '201':
+          description: Referral created as Draft
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ReferralSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Business rule violation
+
+    get:
+      tags: [Referrals]
+      summary: List referrals (scoped to facility)
+      operationId: listReferrals
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [incoming, outgoing]
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ReferralStatus'
+        - name: urgencyLevel
+          in: query
+          schema:
+            $ref: '#/components/schemas/UrgencyLevel'
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Referral list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReferralSummary'
+                  meta:
+                    $ref: '#/components/schemas/MetaWithPagination'
+
+  /referrals/{referralId}:
+    get:
+      tags: [Referrals]
+      summary: Get full referral details
+      operationId: getReferral
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: referralId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Referral details with timeline
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ReferralDetail'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /referrals/{referralId}/status:
+    patch:
+      tags: [Referrals]
+      summary: Transition referral status
+      operationId: updateReferralStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: referralId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/ReferralStatus'
+                notes:
+                  type: string
+                rejectionReason:
+                  type: string
+                  description: Required when status is Rejected (min 15 chars)
+      responses:
+        '200':
+          description: Status updated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Invalid state transition
+
+  /referrals/{referralId}/messages:
+    get:
+      tags: [Messages]
+      summary: Get referral chat history
+      operationId: getReferralMessages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: referralId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Message list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                  meta:
+                    $ref: '#/components/schemas/MetaWithPagination'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ═══════════════════════════════════════════════════════
+  # NOTIFICATIONS
+  # ═══════════════════════════════════════════════════════
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List user notifications
+      operationId: listNotifications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: isRead
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Notification list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  meta:
+                    $ref: '#/components/schemas/MetaWithPagination'
+
+  /notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      operationId: markAllNotificationsRead
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: All notifications marked read
+
+  /notifications/{notificationId}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark single notification as read
+      operationId: markNotificationRead
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Notification marked read
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ═══════════════════════════════════════════════════════
+  # REPORTS
+  # ═══════════════════════════════════════════════════════
+
+  /reports/county:
+    get:
+      tags: [Reports]
+      summary: County-level referral analytics
+      operationId: getCountyReport
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: county
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: County analytics data
+
+  /reports/referral-trends:
+    get:
+      tags: [Reports]
+      summary: Referral volume trends over time
+      operationId: getReferralTrends
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [day, week]
+            default: day
+      responses:
+        '200':
+          description: Trend data by period
+
+  /reports/facility-performance:
+    get:
+      tags: [Reports]
+      summary: Facility performance metrics
+      operationId: getFacilityPerformance
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: hospitalId
+          in: query
+          schema:
+            type: integer
+          description: System Admin only
+      responses:
+        '200':
+          description: Facility performance data
+
+  # ═══════════════════════════════════════════════════════
+  # AUDIT LOGS
+  # ═══════════════════════════════════════════════════════
+
+  /audit-logs:
+    get:
+      tags: [Audit Logs]
+      summary: View system audit log (System Admin only)
+      operationId: getAuditLogs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: actionType
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: ip
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLog'
+                  meta:
+                    $ref: '#/components/schemas/MetaWithPagination'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ═══════════════════════════════════════════════════════
+  # SYNC (MOBILE ONLY)
+  # ═══════════════════════════════════════════════════════
+
+  /sync:
+    post:
+      tags: [Sync]
+      summary: Mobile offline sync — get changed data since last sync
+      operationId: syncData
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lastSyncedAt, deviceId]
+              properties:
+                lastSyncedAt:
+                  type: string
+                  format: date-time
+                  description: Timestamp of last successful sync
+                deviceId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Changed data since last sync
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      referrals:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ReferralSummary'
+                      patients:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PatientMasked'
+                      notifications:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+                      serverTime:
+                        type: string
+                        format: date-time
+                        description: Store this as lastSyncedAt for the next call

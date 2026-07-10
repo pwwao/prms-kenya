@@ -1,0 +1,219 @@
+# =============================================================================
+# PRMS — Production Deploy Pipeline
+# Architecture Contract §14.3 — Manual approval gate, rolling deploy, auto-rollback
+# Triggered: merge to main
+# =============================================================================
+
+name: Deploy — Production
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: af-south-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.af-south-1.amazonaws.com
+  ECR_REPOSITORY: prms-api
+
+jobs:
+  # ── 1. Tag & Build production image ──────────────────────────────────────
+  build:
+    name: Build Production Image
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      full_image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.semver.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive semver from package.json
+        id: semver
+        run: |
+          VERSION=$(node -p "require('./backend/package.json').version")
+          SHA_SHORT=${GITHUB_SHA::7}
+          TAG="v${VERSION}-${SHA_SHORT}"
+          echo "version=$TAG" >> $GITHUB_OUTPUT
+          echo "Production image tag: $TAG"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push production image
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          file: devops/docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.semver.outputs.version }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GIT_SHA=${{ github.sha }}
+            VERSION=${{ steps.semver.outputs.version }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.semver.outputs.version }}
+          name: Release ${{ steps.semver.outputs.version }}
+          body: |
+            ## Changes
+            ${{ github.event.head_commit.message }}
+
+            **Image:** `${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.semver.outputs.version }}`
+            **Commit:** ${{ github.sha }}
+          draft: false
+          prerelease: false
+
+  # ── 2. Manual approval gate ───────────────────────────────────────────────
+  approval:
+    name: Manual Approval Required
+    runs-on: ubuntu-22.04
+    needs: build
+    environment:
+      name: production          # GitHub Environment with required reviewers
+      url: https://api.prms.health.go.ke
+    steps:
+      - name: Approval granted
+        run: echo "✅ Production deploy approved for ${{ needs.build.outputs.version }}"
+
+  # ── 3. Deploy to production ───────────────────────────────────────────────
+  deploy:
+    name: Rolling Deploy to Production
+    runs-on: ubuntu-22.04
+    needs: [build, approval]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Record previous image for rollback
+        id: prev
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: deploy
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            PREV=$(docker inspect prms_api --format='{{.Config.Image}}' 2>/dev/null || echo "none")
+            echo "Previous image: $PREV"
+            echo "$PREV" > /opt/prms/rollback_image.txt
+
+      - name: Copy latest configs to production
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: deploy
+          key: ${{ secrets.PROD_SSH_KEY }}
+          source: devops/docker-compose.prod.yml,devops/nginx/,devops/docker/mysql/
+          target: /opt/prms/
+
+      - name: Rolling deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: deploy
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/prms
+            export IMAGE_TAG=${{ needs.build.outputs.version }}
+
+            # Pull new image
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+              docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+            docker pull ${{ needs.build.outputs.full_image }}
+
+            # Rolling update (zero downtime)
+            docker-compose -f docker-compose.prod.yml up -d --no-deps --scale api=2 api
+            sleep 15
+            docker-compose -f docker-compose.prod.yml up -d --no-deps api
+
+            # Run migrations
+            docker-compose -f docker-compose.prod.yml exec -T api node dist/database/migrate.js
+
+            echo "✅ Production deploy complete: $IMAGE_TAG"
+
+  # ── 4. Post-deploy health check + auto-rollback ───────────────────────────
+  verify:
+    name: Verify & Auto-Rollback
+    runs-on: ubuntu-22.04
+    needs: [build, deploy]
+    steps:
+      - name: Health check with auto-rollback
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: deploy
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            HEALTHY=false
+            for i in {1..12}; do
+              STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://api.prms.health.go.ke/health || echo "000")
+              echo "Attempt $i: HTTP $STATUS"
+              if [ "$STATUS" = "200" ]; then
+                HEALTHY=true
+                break
+              fi
+              sleep 10
+            done
+
+            if [ "$HEALTHY" = "false" ]; then
+              echo "❌ Health checks failed — initiating auto-rollback"
+              PREV=$(cat /opt/prms/rollback_image.txt)
+              if [ "$PREV" != "none" ]; then
+                cd /opt/prms
+                IMAGE_TAG=$PREV docker-compose -f docker-compose.prod.yml up -d --no-deps api
+                echo "⏪ Rolled back to: $PREV"
+              fi
+              exit 1
+            fi
+
+            echo "✅ Production is healthy: ${{ needs.build.outputs.version }}"
+
+  # ── 5. Notify on failure ──────────────────────────────────────────────────
+  notify:
+    name: Notify on Failure
+    runs-on: ubuntu-22.04
+    needs: [build, deploy, verify]
+    if: failure()
+    steps:
+      - name: Send Slack alert
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          slack-message: |
+            ❌ *PRMS Production Deploy FAILED*
+            Version: `${{ needs.build.outputs.version }}`
+            Commit: ${{ github.sha }}
+            Actor: ${{ github.actor }}
+            <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

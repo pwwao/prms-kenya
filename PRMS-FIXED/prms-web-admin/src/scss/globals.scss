@@ -1,0 +1,691 @@
+/**
+ * PRMS Global Stylesheet
+ * CSS custom properties, typography, utilities, responsive grid, accessibility
+ *
+ * Import order in main.tsx:
+ *   import '@/scss/globals.scss'
+ *   (must come before any MUI import)
+ */
+
+// ─── GOOGLE FONTS ────────────────────────────────────────────────────────────
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+// ─── CSS CUSTOM PROPERTIES ────────────────────────────────────────────────────
+
+:root {
+  // Brand
+  --color-teal-50:  #E0F2EE;
+  --color-teal-100: #B3DED7;
+  --color-teal-200: #80C9BE;
+  --color-teal-400: #26A392;
+  --color-teal-500: #0B6B5D;
+  --color-teal-600: #0A5E52;
+  --color-teal-700: #084F45;
+  --color-teal-800: #063F37;
+
+  --color-amber-50:  #FEF6E7;
+  --color-amber-200: #FBDA96;
+  --color-amber-500: #C97A15;
+  --color-amber-600: #B06810;
+  --color-amber-700: #8D530C;
+
+  // Semantic
+  --color-success-50:  #ECFDF5;
+  --color-success-200: #A7F3D0;
+  --color-success-500: #16834B;
+  --color-success-700: #166534;
+
+  --color-warning-50:  #FFF7ED;
+  --color-warning-200: #FED7AA;
+  --color-warning-500: #B85C00;
+  --color-warning-700: #843F00;
+
+  --color-danger-50:  #FEF2F2;
+  --color-danger-200: #FECACA;
+  --color-danger-500: #B91C1C;
+  --color-danger-700: #7F1D1D;
+
+  --color-info-50:  #EFF6FF;
+  --color-info-200: #BFDBFE;
+  --color-info-500: #1E56A0;
+  --color-info-700: #1E40AF;
+
+  // Neutral
+  --color-white:       #FFFFFF;
+  --color-canvas:      #F4F7F8;
+  --color-neutral-100: #E8EDF2;
+  --color-neutral-200: #D8E2EA;
+  --color-neutral-300: #B8C8D6;
+  --color-neutral-400: #8AA0B4;
+  --color-neutral-500: #6E8499;
+  --color-neutral-600: #3A5068;
+  --color-neutral-700: #2B3D52;
+  --color-neutral-800: #1C2B3A;
+
+  // Typography
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  // Spacing
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  // Radius
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   12px;
+  --radius-2xl:  16px;
+  --radius-full: 9999px;
+
+  // Shadows
+  --shadow-xs: 0 1px 2px 0 rgba(28, 43, 58, 0.06);
+  --shadow-sm: 0 1px 3px 0 rgba(28, 43, 58, 0.08), 0 1px 2px -1px rgba(28, 43, 58, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(28, 43, 58, 0.08), 0 2px 4px -2px rgba(28, 43, 58, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(28, 43, 58, 0.08), 0 4px 6px -4px rgba(28, 43, 58, 0.06);
+
+  // Triage border (4px left border — signature element)
+  --triage-emergent: #B91C1C;
+  --triage-urgent:   #C97A15;
+  --triage-routine:  #16834B;
+  --triage-draft:      #1E56A0;
+  --triage-dispatched: #0B6B5D;
+  --triage-received:   #1D4ED8;
+  --triage-accepted:   #16834B;
+  --triage-rejected:   #B91C1C;
+  --triage-completed:  #8AA0B4;
+  --triage-pending:    #B85C00;
+  --triage-approved:   #16834B;
+  --triage-suspended:  #B91C1C;
+
+  // Layout
+  --sidebar-width:         256px;
+  --sidebar-collapsed:     64px;
+  --topbar-height:         64px;
+  --content-max-width:     1280px;
+  --content-padding-x:     24px;
+}
+
+// ─── RESET ────────────────────────────────────────────────────────────────────
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--color-neutral-800);
+  background-color: var(--color-canvas);
+  min-height: 100vh;
+}
+
+img,
+video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+// ─── TYPOGRAPHY SCALE ─────────────────────────────────────────────────────────
+
+.text-display-lg {
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  color: var(--color-neutral-800);
+}
+
+.text-display-md {
+  font-family: var(--font-display);
+  font-size: 1.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-neutral-800);
+}
+
+.text-display-sm {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.375;
+  color: var(--color-neutral-800);
+}
+
+.text-heading {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.375;
+  color: var(--color-neutral-800);
+}
+
+.text-subheading {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-neutral-700);
+}
+
+.text-body {
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  line-height: 1.625;
+  color: var(--color-neutral-700);
+}
+
+.text-body-sm {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-neutral-600);
+}
+
+.text-caption {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-neutral-500);
+}
+
+.text-label {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+}
+
+.text-code {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  letter-spacing: 0.025em;
+  color: var(--color-teal-700);
+  background-color: var(--color-teal-50);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+// ─── TRIAGE BORDER SYSTEM (SIGNATURE ELEMENT) ─────────────────────────────────
+
+// Applied to any card, list item, or container that needs urgency/status encoding
+// Usage: <div class="triage-card triage-emergent">...</div>
+
+.triage-card {
+  border-left: 4px solid transparent;
+  padding-left: calc(var(--space-5) - 4px); // offset for border
+  background-color: var(--color-white);
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+  border-top: 1px solid var(--color-neutral-200);
+  border-right: 1px solid var(--color-neutral-200);
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+
+// Urgency
+.triage-emergent  { border-left-color: var(--triage-emergent) !important; }
+.triage-urgent    { border-left-color: var(--triage-urgent) !important; }
+.triage-routine   { border-left-color: var(--triage-routine) !important; }
+
+// Referral status
+.triage-draft      { border-left-color: var(--triage-draft) !important; }
+.triage-dispatched { border-left-color: var(--triage-dispatched) !important; }
+.triage-received   { border-left-color: var(--triage-received) !important; }
+.triage-accepted   { border-left-color: var(--triage-accepted) !important; }
+.triage-rejected   { border-left-color: var(--triage-rejected) !important; }
+.triage-completed  { border-left-color: var(--triage-completed) !important; }
+
+// Hospital / User status
+.triage-pending    { border-left-color: var(--triage-pending) !important; }
+.triage-approved   { border-left-color: var(--triage-approved) !important; }
+.triage-suspended  { border-left-color: var(--triage-suspended) !important; }
+
+// ─── RESPONSIVE GRID ─────────────────────────────────────────────────────────
+
+.prms-container {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin-inline: auto;
+  padding-inline: var(--content-padding-x);
+
+  @media (max-width: 768px) {
+    padding-inline: 16px;
+  }
+}
+
+.prms-grid {
+  display: grid;
+  gap: var(--space-6);
+
+  &.cols-1  { grid-template-columns: 1fr; }
+  &.cols-2  { grid-template-columns: repeat(2, 1fr); }
+  &.cols-3  { grid-template-columns: repeat(3, 1fr); }
+  &.cols-4  { grid-template-columns: repeat(4, 1fr); }
+
+  // KPI cards: 4-col on desktop, 2 on tablet, 1 on mobile
+  &.kpi-grid {
+    grid-template-columns: repeat(4, 1fr);
+
+    @media (max-width: 1024px) {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    @media (max-width: 480px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  // Content split: main + sidebar
+  &.content-sidebar {
+    grid-template-columns: 1fr 320px;
+
+    @media (max-width: 1024px) {
+      grid-template-columns: 1fr;
+    }
+  }
+}
+
+// ─── LAYOUT ───────────────────────────────────────────────────────────────────
+
+.prms-app-shell {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--color-canvas);
+}
+
+.prms-sidebar {
+  width: var(--sidebar-width);
+  min-height: 100vh;
+  background-color: var(--color-neutral-800);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 200ms ease;
+  position: sticky;
+  top: 0;
+  overflow: hidden;
+
+  @media (max-width: 1024px) {
+    position: fixed;
+    z-index: 300;
+    transform: translateX(-100%);
+
+    &.open {
+      transform: translateX(0);
+    }
+  }
+}
+
+.prms-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.prms-topbar {
+  height: var(--topbar-height);
+  background-color: var(--color-white);
+  border-bottom: 1px solid var(--color-neutral-200);
+  display: flex;
+  align-items: center;
+  padding-inline: var(--space-6);
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  gap: var(--space-4);
+}
+
+.prms-page {
+  padding: var(--space-6);
+  flex: 1;
+
+  @media (max-width: 768px) {
+    padding: var(--space-4);
+  }
+}
+
+.prms-page-header {
+  margin-bottom: var(--space-6);
+
+  h1, h2 {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--color-neutral-800);
+    line-height: 1.25;
+  }
+
+  .subtitle {
+    font-size: 0.875rem;
+    color: var(--color-neutral-500);
+    margin-top: var(--space-1);
+  }
+}
+
+// ─── CARDS ────────────────────────────────────────────────────────────────────
+
+.prms-card {
+  background-color: var(--color-white);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+
+  &__header {
+    padding: var(--space-5) var(--space-6);
+    border-bottom: 1px solid var(--color-neutral-100);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+
+    h2, h3 {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--color-neutral-800);
+    }
+  }
+
+  &__body {
+    padding: var(--space-5) var(--space-6);
+  }
+
+  &__footer {
+    padding: var(--space-4) var(--space-6);
+    border-top: 1px solid var(--color-neutral-100);
+    background-color: var(--color-canvas);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+  }
+}
+
+// ─── SECTION DIVIDER WITH LABEL ──────────────────────────────────────────────
+
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background-color: var(--color-neutral-200);
+  }
+
+  span {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-neutral-400);
+    white-space: nowrap;
+  }
+}
+
+// ─── FORM ELEMENTS ────────────────────────────────────────────────────────────
+
+.prms-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+}
+
+.prms-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-neutral-700);
+
+  .required {
+    color: var(--color-danger-500);
+    margin-left: 2px;
+  }
+}
+
+.prms-field-hint {
+  font-size: 0.75rem;
+  color: var(--color-neutral-500);
+  margin-top: var(--space-1);
+}
+
+.prms-field-error {
+  font-size: 0.75rem;
+  color: var(--color-danger-600);
+  margin-top: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+// ─── MASKED DATA DISPLAY ──────────────────────────────────────────────────────
+// For Receptionist role — restricted PII display
+
+.masked-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+
+  .mask-value {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--color-neutral-600);
+  }
+
+  .mask-icon {
+    color: var(--color-neutral-400);
+    font-size: 14px;
+  }
+
+  &.restricted {
+    background-color: var(--color-neutral-100);
+    padding: 3px 8px;
+    border-radius: var(--radius-md);
+    font-size: 0.75rem;
+    color: var(--color-neutral-500);
+    font-style: italic;
+    border: 1px dashed var(--color-neutral-300);
+  }
+}
+
+// ─── EMPTY STATE ─────────────────────────────────────────────────────────────
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-16) var(--space-8);
+  text-align: center;
+
+  &__icon {
+    width: 64px;
+    height: 64px;
+    background-color: var(--color-neutral-100);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: var(--space-5);
+    color: var(--color-neutral-400);
+  }
+
+  &__title {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-neutral-700);
+    margin-bottom: var(--space-2);
+  }
+
+  &__body {
+    font-size: 0.875rem;
+    color: var(--color-neutral-500);
+    max-width: 320px;
+    line-height: 1.625;
+    margin-bottom: var(--space-5);
+  }
+}
+
+// ─── OFFLINE BANNER ──────────────────────────────────────────────────────────
+// Shown on web when connection drops
+
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  background-color: var(--color-warning-500);
+  color: #fff;
+  text-align: center;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+
+  &.online {
+    background-color: var(--color-success-500);
+  }
+}
+
+// ─── SCROLL AREAS ────────────────────────────────────────────────────────────
+
+.scroll-area {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-300) transparent;
+
+  &::-webkit-scrollbar {
+    width: 5px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--color-neutral-300);
+    border-radius: 3px;
+  }
+}
+
+// ─── ACCESSIBILITY ────────────────────────────────────────────────────────────
+
+// Skip link — keyboard users jump to main content
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--space-4);
+  z-index: 9999;
+  padding: var(--space-3) var(--space-5);
+  background-color: var(--color-teal-500);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-size: 0.875rem;
+
+  &:focus {
+    left: var(--space-4);
+  }
+}
+
+// Visible focus ring — overrides browser default
+:focus-visible {
+  outline: 2.5px solid var(--color-teal-500);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+// Remove focus ring for mouse users
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+// Screen reader only
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+// Reduced motion
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+// High contrast mode support
+@media (forced-colors: active) {
+  .triage-card,
+  .triage-emergent,
+  .triage-urgent,
+  .triage-routine {
+    border-left-color: ButtonText;
+  }
+}
+
+// ─── PRINT ────────────────────────────────────────────────────────────────────
+
+@media print {
+  .prms-sidebar,
+  .prms-topbar,
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 12pt;
+  }
+
+  .prms-card {
+    box-shadow: none;
+    border: 1px solid #ccc;
+  }
+
+  .triage-card {
+    border-left: 4px solid #000;
+  }
+}

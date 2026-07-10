@@ -1,0 +1,197 @@
+# =============================================================================
+# PRMS — Prometheus Alerting Rules
+# Architecture Contract §15.4 — SLOs: 99.5% uptime, p95 < 500ms, error rate < 1%
+# =============================================================================
+
+groups:
+
+  # ── API availability ────────────────────────────────────────────────────────
+  - name: prms_availability
+    rules:
+
+      - alert: APIDown
+        expr: up{job="prms_api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "PRMS API is DOWN"
+          description: "API instance {{ $labels.instance }} has been unreachable for >1 minute."
+          runbook: "https://wiki.prms.health.go.ke/runbooks/api-down"
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="prms_api",status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total{job="prms_api"}[5m])) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "PRMS API error rate > 1%"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: SlowP95ResponseTime
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="prms_api"}[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "PRMS API p95 response time > 500ms"
+          description: "p95 latency is {{ $value | humanizeDuration }} — SLO threshold is 500ms."
+
+  # ── Database ────────────────────────────────────────────────────────────────
+  - name: prms_database
+    rules:
+
+      - alert: MySQLDown
+        expr: mysql_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "MySQL is DOWN"
+          description: "MySQL instance {{ $labels.instance }} is unreachable."
+
+      - alert: MySQLHighConnections
+        expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "MySQL connections > 80% of max"
+          description: "{{ $value | humanizePercentage }} of max_connections used."
+
+      - alert: MySQLSlowQueries
+        expr: rate(mysql_global_status_slow_queries[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "MySQL slow query rate high"
+          description: "{{ $value | humanize }} slow queries/second."
+
+      - alert: MySQLReplicationLag
+        expr: mysql_slave_status_seconds_behind_master > 30
+        for: 2m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "MySQL replica lag > 30 seconds"
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  - name: prms_redis
+    rules:
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "Redis is DOWN"
+          description: "Redis instance {{ $labels.instance }} is unreachable."
+
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Redis memory usage > 85%"
+          description: "Redis memory at {{ $value | humanizePercentage }} of maxmemory."
+
+      - alert: RedisHighConnections
+        expr: redis_connected_clients > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Redis has > 100 connected clients"
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  - name: prms_infrastructure
+    rules:
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Host CPU usage > 85%"
+          description: "{{ $labels.instance }} CPU at {{ $value | humanize }}%."
+
+      - alert: HighMemoryUsage
+        expr: |
+          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+          / node_memory_MemTotal_bytes > 0.90
+        for: 5m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "Host memory usage > 90%"
+
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"}
+          / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Disk space < 15% remaining"
+          description: "{{ $labels.instance }} disk at {{ $value | humanizePercentage }} free."
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"}
+          / node_filesystem_size_bytes{mountpoint="/"}) < 0.05
+        for: 1m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "Disk space CRITICAL — < 5% remaining"
+
+  # ── Business metrics ────────────────────────────────────────────────────────
+  - name: prms_business
+    rules:
+
+      - alert: NoReferralsCreated
+        expr: |
+          increase(prms_referrals_created_total[1h]) == 0
+        for: 0m
+        labels:
+          severity: info
+          team: product
+        annotations:
+          summary: "No referrals created in the last hour"
+          description: "May indicate system issue or low activity period."
+
+      - alert: HighAuthFailureRate
+        expr: |
+          sum(rate(prms_auth_failures_total[10m])) > 20
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High authentication failure rate — possible brute force"
+          description: "{{ $value | humanize }} failed auth attempts/second."

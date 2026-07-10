@@ -1,0 +1,71 @@
+# =============================================================================
+# PRMS — Scheduled Security & Dependency Audit
+# Runs weekly on Monday 08:00 UTC
+# OWASP A06:2021 — Vulnerable and Outdated Components
+# =============================================================================
+
+name: Security Audit
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'    # Every Monday at 08:00 UTC
+  workflow_dispatch:         # Allow manual trigger
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  dependency-audit:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Backend npm audit
+        working-directory: backend
+        run: |
+          npm ci
+          npm audit --json > audit-results.json || true
+          # Fail on high/critical
+          npm audit --audit-level=high
+
+      - name: Trivy container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.af-south-1.amazonaws.com/prms-api:latest
+          format: sarif
+          output: trivy-container.sarif
+          severity: HIGH,CRITICAL
+
+      - name: Upload results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-container.sarif
+
+      - name: Notify on vulnerabilities
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: ${{ secrets.SLACK_SECURITY_CHANNEL_ID }}
+          slack-message: "⚠️ *PRMS Security Audit found HIGH/CRITICAL vulnerabilities.* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View details>"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog secret scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          extra_args: --only-verified

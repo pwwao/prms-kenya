@@ -1,0 +1,107 @@
+# =============================================================================
+# PRMS — Load Test Pipeline
+# Runs k6 load tests against staging. Triggered manually or weekly.
+# Architecture Contract §15.4 — p95 < 500ms, error rate < 1%
+# =============================================================================
+
+name: Load Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'k6 scenario to run'
+        required: true
+        default: 'load'
+        type: choice
+        options: [load, stress, spike, soak]
+      base_url:
+        description: 'Target API URL'
+        required: true
+        default: 'https://staging-api.prms.health.go.ke'
+  schedule:
+    - cron: '0 2 * * 0'    # Every Sunday at 02:00 UTC
+
+jobs:
+  load-test:
+    name: k6 Load Test (${{ github.event.inputs.scenario || 'load' }})
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Seed load test data on staging
+        env:
+          DB_HOST:     ${{ secrets.STAGING_DB_HOST }}
+          DB_NAME:     ${{ secrets.STAGING_DB_NAME }}
+          DB_USER:     ${{ secrets.STAGING_DB_USER }}
+          DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+          DATABASE_ENCRYPTION_KEY: ${{ secrets.STAGING_ENCRYPTION_KEY }}
+          HASH_SALT:               ${{ secrets.STAGING_HASH_SALT }}
+        run: npx tsx tests/load/seed-load-test.ts
+
+      - name: Run k6 load test
+        uses: grafana/run-k6-action@v1
+        with:
+          path: tests/load/load-test.ts
+          flags: >
+            --env BASE_URL=${{ github.event.inputs.base_url || 'https://staging-api.prms.health.go.ke' }}
+            --env SCENARIO=${{ github.event.inputs.scenario || 'load' }}
+            --out json=k6-results.json
+            --summary-export=k6-summary.json
+
+      - name: Parse and display results
+        if: always()
+        run: |
+          echo "## k6 Load Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Scenario:** ${{ github.event.inputs.scenario || 'load' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** ${{ github.event.inputs.base_url || 'staging' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f k6-summary.json ]; then
+            node -e "
+              const s = require('./k6-summary.json');
+              const m = s.metrics;
+              const lines = [
+                '| Metric | Value |',
+                '|--------|-------|',
+                \`| p95 Response Time | \${(m?.http_req_duration?.values?.['p(95)'] || 0).toFixed(0)}ms |\`,
+                \`| p99 Response Time | \${(m?.http_req_duration?.values?.['p(99)'] || 0).toFixed(0)}ms |\`,
+                \`| Error Rate        | \${((m?.error_rate?.values?.rate || 0) * 100).toFixed(2)}% |\`,
+                \`| Total Requests    | \${m?.http_reqs?.values?.count || 0} |\`,
+                \`| Peak VUs          | \${m?.vus_max?.values?.max || 0} |\`,
+              ];
+              console.log(lines.join('\n'));
+            " >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload k6 results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-results-${{ github.event.inputs.scenario || 'load' }}
+          path: |
+            k6-results.json
+            k6-summary.json
+          retention-days: 30
+
+      - name: Alert on threshold breach
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          slack-message: |
+            ⚠️ *PRMS Load Test FAILED — thresholds breached*
+            Scenario: `${{ github.event.inputs.scenario || 'load' }}`
+            Target: ${{ github.event.inputs.base_url || 'staging' }}
+            <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View results>
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

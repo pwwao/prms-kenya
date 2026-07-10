@@ -1,0 +1,18 @@
+node_modules/
+.env
+android/app/build/
+android/.gradle/
+android/build/
+*.keystore
+ios/build/
+ios/Pods/
+*.log
+.DS_Store
+
+# NOTE: google-services.json is intentionally NOT ignored here.
+# It's a client-side config file (the same one that ships inside every
+# built APK), so it's fine to commit if this repo is private — and the
+# GitHub Actions workflow (.github/workflows/build-apk.yml) needs it
+# present in the repo to build. If this repo is or becomes public,
+# add "android/app/google-services.json" to this file instead and pass
+# it into CI via a GitHub Secret.

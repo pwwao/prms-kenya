@@ -1,0 +1,68 @@
+# =============================================================================
+# PRMS — Scheduled Database Backup
+# Architecture Contract §15.3 — Daily backups at 01:00 UTC, 30-day retention
+# =============================================================================
+
+name: Database Backup
+
+on:
+  schedule:
+    - cron: '0 1 * * *'    # Every day at 01:00 UTC
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to backup'
+        required: true
+        default: 'production'
+        type: choice
+        options: [production, staging]
+
+env:
+  AWS_REGION: af-south-1
+
+jobs:
+  backup:
+    name: Backup ${{ github.event.inputs.environment || 'production' }} DB
+    runs-on: ubuntu-22.04
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install MySQL client
+        run: sudo apt-get install -y mysql-client
+
+      - name: Run backup via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: deploy
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/prms
+            bash devops/scripts/db-backup.sh backup
+            echo "Backup complete at $(date)"
+
+      - name: Verify backup exists in S3
+        run: |
+          TODAY=$(date +%Y%m%d)
+          COUNT=$(aws s3 ls s3://${{ secrets.S3_BACKUP_BUCKET }}/backups/ \
+            | grep "$TODAY" | wc -l)
+          echo "Backups found for today: $COUNT"
+          [ "$COUNT" -ge 1 ] || exit 1
+
+      - name: Notify on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          slack-message: "❌ *PRMS Database backup FAILED* for ${{ github.event.inputs.environment || 'production' }}. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
